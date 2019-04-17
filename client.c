@@ -7,9 +7,22 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <fcntl.h>
- 
+#include <openssl/rsa.h>
+#include <openssl/pem.h>
+#include <openssl/err.h>
+#include <openssl/applink.h>
+
+#pragma comment(lib,"libeay32.lib")
+#pragma comment(lib,"ssleay32.lib")
+
 #define N 256
- 
+#define TEXT "text.txt"
+#define OPENSSLKEY "privatekey.key"    
+#define PUBLICKEY "publickey.key"
+#define BUFFSIZE 1024
+#define MAXLINE 2048
+
+
 typedef struct sockaddr SA;
  
 void commd_help();
@@ -17,7 +30,9 @@ void commd_exit();
 void commd_ls(struct sockaddr_in, char *);
 void commd_get(struct sockaddr_in , char *);
 void commd_put(struct sockaddr_in , char *);
- 
+char* my_encrypt(char str[], char *path_key);//加密
+char* my_decrypt(char str[], char *path_key);//解密
+
 int main(int argc, char *argv[])
 {
     char commd[N];
@@ -196,6 +211,7 @@ void commd_put(struct sockaddr_in addr, char *commd)
     int sockfd;
     char buffer[N];
     int nbytes;
+    char *ptr_en;
     //创建套接字
     if((sockfd=socket(AF_INET, SOCK_STREAM, 0)) < 0)
     {
@@ -223,8 +239,10 @@ void commd_put(struct sockaddr_in addr, char *commd)
     //从fd指向的文件中读取N个字节数据
     while((nbytes=read(fd, buffer, N)) > 0)
     {
+
         //从buffer中读取nbytes字节数据，写入套接字中
-        if(write(sockfd, buffer, nbytes) < 0)
+        ptr_en = my_encrypt(buffer, PUBLICKEY);
+        if(write(sockfd, ptr_en, strlen(ptr_en)) < 0)
         {
             printf("Write Error!At commd_put 2");
         }
@@ -234,4 +252,56 @@ void commd_put(struct sockaddr_in addr, char *commd)
     close(sockfd);
  
     return ;
+}
+char *my_encrypt(char *str, char *path_key) {		//加密函数
+	errno_t err;
+	char *p_en;
+	RSA *p_rsa;
+	FILE *file;
+	int flen, rsa_len;
+ 
+ 
+	if ((err = fopen_s(&file, path_key, "r")) != 0) {		//打开公钥文件
+		perror("open key file error");
+		return NULL;
+	}
+	
+	if ((p_rsa = PEM_read_RSA_PUBKEY(file, NULL, NULL, NULL)) == NULL) {	//读取公钥
+		ERR_print_errors_fp(stdout);
+		return NULL;
+	}
+	flen = strlen(str);				//获取文件大小
+	rsa_len = RSA_size(p_rsa);		//获取RSA公钥大小
+	p_en = ( char *)malloc(rsa_len + 1);
+	memset(p_en, 0, rsa_len + 1);	
+	if (RSA_public_encrypt(rsa_len, (unsigned char *)str, (unsigned char*)p_en, p_rsa, RSA_NO_PADDING)<0) {		//进行加密操作
+		return NULL;
+	}
+	RSA_free(p_rsa);		//释放空间
+	fclose(file);
+	return p_en;
+}
+char *my_decrypt(char *str, char *path_key) {			//解密函数
+	errno_t err;
+	char *p_de;
+	RSA *p_rsa;
+	FILE *file;
+	int rsa_len;
+	if (( err= fopen_s(&file,path_key, "r"))!=0) {		//打开私钥文件
+		perror("open key file error");
+		return NULL;
+	}
+	if ((p_rsa = PEM_read_RSAPrivateKey(file, NULL, NULL, NULL)) == NULL) {		//获取私钥信息
+		ERR_print_errors_fp(stdout);
+		return NULL;
+	}
+	rsa_len = RSA_size(p_rsa);				//获取RSA公钥大小
+	p_de = ( char *)malloc(rsa_len + 1);
+	memset(p_de, 0, rsa_len + 1);
+	if (RSA_private_decrypt(rsa_len, (unsigned char *)str, (unsigned char*)p_de, p_rsa, RSA_NO_PADDING)<0) {		//进行解密
+		return NULL;
+	}
+	RSA_free(p_rsa);		//释放空间
+	fclose(file);
+	return p_de;
 }
