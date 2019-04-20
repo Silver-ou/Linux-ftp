@@ -10,7 +10,7 @@
 #include <openssl/rsa.h>
 #include <openssl/pem.h>
 #include <openssl/err.h>
-#include <openssl/applink.h>
+//#include <openssl/applink.h>
 
 #pragma comment(lib,"libeay32.lib")
 #pragma comment(lib,"ssleay32.lib")
@@ -149,6 +149,7 @@ void commd_get(struct sockaddr_in addr, char *commd)
     int sockfd;
     char buffer[N];
     int nbytes;
+    char* ptr_de;
     //创建套接字，并进行错误检测
     if((sockfd=socket(AF_INET, SOCK_STREAM, 0)) < 0)
     {
@@ -189,8 +190,9 @@ void commd_get(struct sockaddr_in addr, char *commd)
     //read函数从套接字中获取N字节数据放入buffer中，返回值为读取的字节数
     while((nbytes=read(sockfd, buffer, N)) > 0)
     {
+	ptr_de = my_decrypt(buffer,OPENSSLKEY);
         //write函数将buffer中的内容读取出来写入fd所指向的文件，返回值为实际写入的字节数
-        if(write(fd, buffer, nbytes) < 0)
+        if(write(fd, ptr_de, strlen(ptr_de)) < 0)
         {
             printf("Write Error!At commd_get 2");
         }
@@ -254,17 +256,11 @@ void commd_put(struct sockaddr_in addr, char *commd)
     return ;
 }
 char *my_encrypt(char *str, char *path_key) {		//加密函数
-	errno_t err;
 	char *p_en;
 	RSA *p_rsa;
 	FILE *file;
 	int flen, rsa_len;
- 
- 
-	if ((err = fopen_s(&file, path_key, "r")) != 0) {		//打开公钥文件
-		perror("open key file error");
-		return NULL;
-	}
+	file = fopen(path_key,"r");
 	
 	if ((p_rsa = PEM_read_RSA_PUBKEY(file, NULL, NULL, NULL)) == NULL) {	//读取公钥
 		ERR_print_errors_fp(stdout);
@@ -282,15 +278,11 @@ char *my_encrypt(char *str, char *path_key) {		//加密函数
 	return p_en;
 }
 char *my_decrypt(char *str, char *path_key) {			//解密函数
-	errno_t err;
 	char *p_de;
 	RSA *p_rsa;
 	FILE *file;
 	int rsa_len;
-	if (( err= fopen_s(&file,path_key, "r"))!=0) {		//打开私钥文件
-		perror("open key file error");
-		return NULL;
-	}
+	file = fopen(path_key,"r");
 	if ((p_rsa = PEM_read_RSAPrivateKey(file, NULL, NULL, NULL)) == NULL) {		//获取私钥信息
 		ERR_print_errors_fp(stdout);
 		return NULL;

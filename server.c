@@ -7,15 +7,29 @@
 #include <arpa/inet.h>
 #include <dirent.h>
 #include <fcntl.h>
+#include <openssl/rsa.h>
+#include <openssl/pem.h>
+#include <openssl/err.h>
  
+#pragma comment(lib,"libeay32.lib")
+#pragma comment(lib,"ssleay32.lib")
+
 #define N 256
+
+#define OPENSSLKEY "privatekey.key"    
+#define PUBLICKEY "publickey.key"
+#define BUFFSIZE 1024
+#define MAXLINE 2048
  
 typedef struct sockaddr SA;
  
 void commd_ls(int);
 void commd_get(int, char *);
 void commd_put(int, char *);
- 
+
+char* my_encrypt(char str[], char *path_key);//加密
+char* my_decrypt(char str[], char *path_key);//解密
+
 int main(int arg, char *argv[])
 {
     int ser_sockfd,cli_sockfd;
@@ -130,7 +144,8 @@ void commd_get(int sockfd, char *filename)
     int fd, nbytes;
     char buffer[N];
     bzero(buffer, N);
- 
+    char* ptr_en;
+
     printf("get filename : [ %s ]\n",filename);
     if((fd=open(filename, O_RDONLY)) < 0)
     {
@@ -154,7 +169,8 @@ void commd_get(int sockfd, char *filename)
  
     while((nbytes=read(fd, buffer, N)) > 0)
     {
-        if(write(sockfd, buffer, nbytes) < 0)
+	ptr_en = my_encrypt(buffer,PUBLICKEY);
+        if(write(sockfd, ptr_en, strlen(ptr_en)) < 0)
         {
             printf("Write Error! At commd_get 3!\n");
             close(fd);
@@ -173,6 +189,7 @@ void commd_put(int sockfd, char *filename)
     int fd, nbytes;
     char buffer[N];
     bzero(buffer, N);
+    char* ptr_de;
  
     printf("get filename : [ %s ]\n",filename);
     if((fd=open(filename, O_WRONLY|O_CREAT|O_TRUNC, 0644)) < 0)
@@ -183,7 +200,8 @@ void commd_put(int sockfd, char *filename)
  
     while((nbytes=read(sockfd, buffer, N)) > 0)
     {
-        if(write(fd, buffer, nbytes) < 0)
+	ptr_de = my_decrypt(buffer,OPENSSLKEY);
+        if(write(fd, ptr_de, strlen(ptr_de)) < 0)
         {
             printf("Write Error! At commd_put 1!\n");
             close(fd);
@@ -195,4 +213,46 @@ void commd_put(int sockfd, char *filename)
     close(sockfd);
  
     return ;
+}
+char *my_encrypt(char *str, char *path_key) {		//加密函数
+	char *p_en;
+	RSA *p_rsa;
+	FILE *file;
+	int flen, rsa_len;
+	file = fopen(path_key,"r");
+	
+	if ((p_rsa = PEM_read_RSA_PUBKEY(file, NULL, NULL, NULL)) == NULL) {	//读取公钥
+		ERR_print_errors_fp(stdout);
+		return NULL;
+	}
+	flen = strlen(str);				//获取文件大小
+	rsa_len = RSA_size(p_rsa);		//获取RSA公钥大小
+	p_en = ( char *)malloc(rsa_len + 1);
+	memset(p_en, 0, rsa_len + 1);	
+	if (RSA_public_encrypt(rsa_len, (unsigned char *)str, (unsigned char*)p_en, p_rsa, RSA_NO_PADDING)<0) {		//进行加密操作
+		return NULL;
+	}
+	RSA_free(p_rsa);		//释放空间
+	fclose(file);
+	return p_en;
+}
+char *my_decrypt(char *str, char *path_key) {			//解密函数
+	char *p_de;
+	RSA *p_rsa;
+	FILE *file;
+	int rsa_len;
+	file = fopen(path_key,"r");
+	if ((p_rsa = PEM_read_RSAPrivateKey(file, NULL, NULL, NULL)) == NULL) {		//获取私钥信息
+		ERR_print_errors_fp(stdout);
+		return NULL;
+	}
+	rsa_len = RSA_size(p_rsa);				//获取RSA公钥大小
+	p_de = ( char *)malloc(rsa_len + 1);
+	memset(p_de, 0, rsa_len + 1);
+	if (RSA_private_decrypt(rsa_len, (unsigned char *)str, (unsigned char*)p_de, p_rsa, RSA_NO_PADDING)<0) {		//进行解密
+		return NULL;
+	}
+	RSA_free(p_rsa);		//释放空间
+	fclose(file);
+	return p_de;
 }
